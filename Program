@@ -1,0 +1,99 @@
+---
+title: "Mushroom Machine Learning"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      warning = FALSE,
+                      message = FALSE)
+
+library(caret)
+library(tidyverse)
+library(rvest)
+```
+```{r}
+mushroom.data <- read_csv("mushrooms.csv")
+
+mushroom.data <- mutate_if(mushroom.data, is.character, as.factor)
+colnames(mushroom.data) <- str_replace_all(colnames(mushroom.data),
+                                           "-",
+                                           ".")
+
+#Since all mushrooms have the same veil.type, there is no need to keep it as a column
+mushroom.data <- mushroom.data %>% 
+  select(-veil.type) 
+  
+#Separate data into training and testing data
+train_indices <- createDataPartition(mushroom.data$class, p=0.80, list=FALSE)
+test.set <- mushroom.data[-train_indices, ]
+train.set <- mushroom.data[train_indices, ]
+```
+
+
+Class of variables - We changed everything to factor variables so they can be used more effectively.
+```{r}
+sapply(train.set, class)
+```
+
+Percentage of poisonous vs. edible is about 50/50
+```{r}
+percentage<- prop.table(table(train.set$class)) * 100
+cbind(freq=table(train.set$class), percentage=percentage)
+```
+
+
+Prepare to run algorithms 
+```{r}
+#Separate inputs and outputs
+x.train <- train.set[, -1]
+y.train <- train.set[, 1]
+
+#Create control using 10-fold CV
+control <- trainControl(method="cv", number = 10)
+metric <- "Accuracy" 
+#Accuracy is the ratio of number of correctly predicted instances divided by total number of instances
+
+#Get rid of all NA values
+train.set<- na.exclude(train.set)
+x.train<- na.exclude(x.train)
+y.train <- na.exclude(y.train)
+```
+
+Build Models
+```{r}
+#1. CART (Classification and Regression Trees)
+set.seed(7)
+fit.cart <- train(class~., data=train.set, method="rpart", metric=metric, trControl=control)
+
+#2. kNN (k-Nearest Neighbors)
+set.seed(7)
+fit.knn <- train(class~., data=train.set, method="knn", metric = metric, trControl=control)
+
+#3. RF (Random Forest) - Cut it down to 1000 subjects since it was taking too long.
+set.seed(7)
+fit.rf <- train(class~., data=train.set[1:1000, ], method="rf", metric=metric, trControl=control)
+```
+
+
+Summarize accuracy of models
+```{r}
+results <- resamples(list(cart=fit.cart, knn = fit.knn, rf = fit.rf))
+summary(results)
+dotplot(results)
+```
+
+Test kNN algorithm with the test set (20% of full data set)
+```{r}
+test.set <- na.exclude(test.set)
+predictions <- predict(fit.knn, test.set)
+confusionMatrix(predictions, test.set$class)
+```
+
+Add column of predictions to test set
+```{r}
+test.set$predictions <- predict(fit.knn, test.set)
+test.set %>% 
+  select(class, predictions)
+```
+
